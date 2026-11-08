@@ -112,10 +112,10 @@ function bron(b) {
   return `${esc(b.maker || "onbekend")} · <a href="${esc(b.pagina)}" rel="noopener">${esc(b.licentie)}</a>`;
 }
 
-let stopGeluid = null;
+let stopGeluid = null, stopTab = null;
 function toonTab(k) {
   const vlak = document.getElementById("podium");
-  stopGeluid?.(); stopGeluid = null;
+  stopGeluid?.(); stopGeluid = null; stopTab?.(); stopTab = null;
   vlak.className = "podium-vlak " + (k === "geluid" ? "donker" : "licht");
   if (k === "foto") {
     vlak.innerHTML = D.foto
@@ -133,31 +133,120 @@ function toonTab(k) {
 }
 
 /* ---------- kaart ---------- */
+// plaatsen en zeeën om je te oriënteren op de kaart (lengtegraad, breedtegraad)
+const PLAATSEN = [["Den Helder", 4.76, 52.96], ["IJmuiden", 4.6, 52.46], ["Amsterdam", 4.9, 52.37], ["Den Haag", 4.3, 52.08], ["Rotterdam", 4.48, 51.92], ["Vlissingen", 3.57, 51.45], ["Harlingen", 5.42, 53.17]];
+const ZEEEN = [["Noordzee", 3.35, 52.85, 1], ["Waddenzee", 5.55, 53.3, 0.62], ["Nederland", 5.85, 52.5, 0.8]];
+function xy(lon, lat) { const [lon0, lon1, lat0, lat1] = kust.kader; return [((lon - lon0) / (lon1 - lon0)) * kust.breed, ((lat1 - lat) / (lat1 - lat0)) * kust.hoog]; }
 function kaartSvg(klein = false) {
-  const [lon0, lon1, lat0, lat1] = kust.kader, B = kust.breed, H = kust.hoog;
-  const max = Math.max(1, ...D.vakken.map((v) => v[2]));
-  const cel = 0.0439, cb = (cel / (lon1 - lon0)) * B, ch = (cel / (lat1 - lat0)) * H, lmax = Math.log10(max + 1);
-  const vakken = D.vakken.map(([lon, lat, n]) => {
-    const x = ((lon - lon0) / (lon1 - lon0)) * B - cb / 2, y = ((lat1 - lat) / (lat1 - lat0)) * H - ch / 2;
-    return `<rect class="vak" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(cb + 0.6).toFixed(1)}" height="${(ch + 0.6).toFixed(1)}" opacity="${(0.18 + 0.82 * Math.log10(n + 1) / lmax).toFixed(2)}"/>`;
-  }).join("");
-  return `<svg class="kaart-svg" viewBox="0 0 ${B} ${H}" role="img" aria-label="Kaart van de Nederlandse kust met ${D.vakken.length} vakken waar ${esc(D.naam)} gemeld is"><rect class="zee" width="${B}" height="${H}"/>${vakken}<path class="land" d="${kust.land}"/></svg>`;
+  const [lon0, lon1, lat0, lat1] = kust.kader, B = kust.breed, H = kust.hoog, id = klein ? "wolk-k" : "wolk-g";
+  const cb = (0.0439 / (lon1 - lon0)) * B, ch = (0.0439 / (lat1 - lat0)) * H;
+  // kleur naar rang: het vak met de meeste meldingen is het donkerst, ook als een paar vakken heel veel meldingen hebben
+  const rang = new Map([...D.vakken].sort((p, q) => p[2] - q[2]).map((v, i, l) => [v, l.length > 1 ? i / (l.length - 1) : 1]));
+  const vakken = D.vakken.map((v) => { const [x, y] = xy(v[0], v[1]); return `<rect x="${(x - cb / 2).toFixed(1)}" y="${(y - ch / 2).toFixed(1)}" width="${(cb + 0.6).toFixed(1)}" height="${(ch + 0.6).toFixed(1)}" opacity="${(0.08 + 0.85 * rang.get(v) ** 1.3).toFixed(2)}"/>`; }).join("");
+  const km50 = (50 / (111.32 * Math.cos((52.5 * Math.PI) / 180)) / (lon1 - lon0)) * B;
+  const labels = klein ? "" : `
+    ${ZEEEN.map(([t, lon, lat, k]) => { const [x, y] = xy(lon, lat); return `<text class="kaart-zee" x="${x}" y="${y}" text-anchor="middle" style="font-size:${(44 * k).toFixed(1)}px">${t}</text>`; }).join("")}
+    ${PLAATSEN.map(([t, lon, lat, links]) => { const [x, y] = xy(lon, lat); return `<circle class="kaart-stip" cx="${x}" cy="${y}" r="7"/><text class="kaart-plaats" x="${links ? x - 13 : x + 13}" y="${y + 10}"${links ? ' text-anchor="end"' : ""}>${t}</text>`; }).join("")}
+    <g transform="translate(${B - km50 - 40} ${H - 40})"><line class="kaart-schaal" x1="0" y1="0" x2="${km50}" y2="0"/><line class="kaart-schaal" x1="0" y1="-10" x2="0" y2="10"/><line class="kaart-schaal" x1="${km50}" y1="-10" x2="${km50}" y2="10"/><text class="kaart-plaats" x="${km50 / 2}" y="-18" text-anchor="middle">50 km</text></g>`;
+  return `<svg class="kaart-svg" viewBox="0 0 ${B} ${H}" role="img" aria-label="Kaart van de Nederlandse kust met ${D.vakken.length} plekken van ongeveer 5 bij 5 km waar ${esc(D.naam)} gemeld is">
+    <defs><filter id="${id}" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="${klein ? 7 : 5}"/></filter></defs>
+    <rect class="zee" width="${B}" height="${H}"/>
+    <g class="wolk" filter="url(#${id})">${vakken}</g>
+    <g class="sim" data-sim></g>
+    <path class="land" d="${kust.land}"/>${labels}
+    ${D.vakken.length ? "" : `<text class="kaart-zee" x="${B * 0.32}" y="${H * 0.5}" text-anchor="middle" style="font-size:40px">geen meldingen</text>`}
+  </svg>`;
 }
+
+// hoe beweegt dit dier in de simulatie?
+function beweging() {
+  if (["zeepaardje"].includes(D.slug)) return { soort: "zwemt", snel: 6, n: 10 };
+  if (D.groep === "zeezoogdieren") return { soort: "zwemt", snel: 70, n: 16 };
+  if (D.groep === "haaien en roggen") return { soort: "zwemt", snel: 40, n: 18 };
+  if (D.groep === "vissen") return { soort: "zwemt", snel: 32, n: 26 };
+  if (D.groep === "inktvissen") return { soort: "zwemt", snel: 22, n: 18 };
+  if (D.groep === "kwallen") return { soort: "drijft", snel: 9, n: 28 };
+  if (D.groep === "krabben en garnalen" || ["zeester", "wulk", "alikruik"].includes(D.slug)) return { soort: "kruipt", snel: 3, n: 30 };
+  return { soort: "stil", snel: 0, n: 34 };
+}
+const SIMZIN = {
+  zwemt: (d) => `Elke stip is een verzonnen ${kaal(d.naam)} die van plek naar plek zwemt, het vaakst naar plekken met veel meldingen. Zo precies zwemt een echte ${kaal(d.naam)} niet: het laat zien waar ${d.hij} vaak is.`,
+  drijft: (d) => `Elke stip is een verzonnen ${kaal(d.naam)} die meedrijft met het water. Een kwal kan wel een beetje zwemmen, maar gaat vooral waar de stroming en de wind ${d.hem} heen brengen.`,
+  kruipt: (d) => `Elke stip is een verzonnen ${kaal(d.naam)} die langzaam over de bodem kruipt. ${hoofd(d.hij)} komt niet ver: de stippen blijven in de buurt van hun plek.`,
+  stil: (d) => `${hoofd(kaal(d.naam))} blijft bijna altijd op één plek, in of op de bodem. De stippen zijn verzonnen plekken waar ${d.hij} kan liggen; ze bewegen niet.`,
+};
+function simuleer(svg) {
+  const laag = svg.querySelector("[data-sim]"), b = beweging(), V = D.vakken;
+  if (!V.length || !laag) return () => {};
+  const pts = V.map(([lon, lat, n]) => [...xy(lon, lat), Math.log10(n + 1)]), totW = pts.reduce((a, p) => a + p[2], 0);
+  const trek = (bij = null, r = 140) => {
+    let kand = pts;
+    if (bij) { kand = pts.filter((p) => Math.hypot(p[0] - bij[0], p[1] - bij[1]) < r); if (kand.length < 3) kand = pts; }
+    const w = kand.reduce((a, p) => a + p[2], 0); let t = Math.random() * w;
+    for (const p of kand) { t -= p[2]; if (t <= 0) return [p[0] + (Math.random() - 0.5) * 8, p[1] + (Math.random() - 0.5) * 8]; }
+    return [kand[0][0], kand[0][1]];
+  };
+  const n = Math.min(b.n, Math.max(6, Math.round(pts.length / 6)));
+  const stippen = Array.from({ length: n }, () => { const p = trek(); return { x: p[0], y: p[1], thuis: p, doel: trek(p), vx: 0, vy: 0, spoor: [], fase: Math.random() * 6.3 }; });
+  laag.innerHTML = stippen.map(() => `<path class="sim-spoor"/><circle class="sim-stip" r="${b.soort === "stil" ? 7 : 9}"/>`).join("");
+  const sporen = laag.querySelectorAll(".sim-spoor"), cirkels = laag.querySelectorAll(".sim-stip");
+  const teken = () => stippen.forEach((s, i) => { cirkels[i].setAttribute("cx", s.x.toFixed(1)); cirkels[i].setAttribute("cy", s.y.toFixed(1)); sporen[i].setAttribute("d", s.spoor.length > 1 ? "M" + s.spoor.map((p) => p[0].toFixed(1) + " " + p[1].toFixed(1)).join("L") : ""); });
+  teken();
+  if (b.soort === "stil" || matchMedia("(prefers-reduced-motion: reduce)").matches) return () => {};
+  let raf = 0, vorige = performance.now(), sinds = 0, aan = true;
+  const stap = (nu) => {
+    const dt = Math.min(0.05, (nu - vorige) / 1000); vorige = nu; sinds += dt;
+    for (const s of stippen) {
+      if (b.soort === "zwemt") {
+        const dx = s.doel[0] - s.x, dy = s.doel[1] - s.y, d = Math.hypot(dx, dy);
+        if (d < 6) s.doel = trek([s.x, s.y]);
+        s.vx += ((dx / (d || 1)) * b.snel - s.vx) * dt * 1.6 + (Math.random() - 0.5) * b.snel * dt * 2;
+        s.vy += ((dy / (d || 1)) * b.snel - s.vy) * dt * 1.6 + (Math.random() - 0.5) * b.snel * dt * 2;
+      } else if (b.soort === "drijft") {
+        s.fase += dt * 0.7;
+        s.vx = b.snel * (0.55 + 0.5 * Math.sin(s.fase)); s.vy = -b.snel * (0.75 + 0.4 * Math.cos(s.fase * 0.8));
+        if (Math.hypot(s.x - s.thuis[0], s.y - s.thuis[1]) > 120) { const p = trek(); s.x = p[0]; s.y = p[1]; s.thuis = p; s.spoor = []; }
+      } else {
+        s.fase += dt; const dx = s.thuis[0] - s.x, dy = s.thuis[1] - s.y;
+        s.vx = Math.cos(s.fase * 0.9 + s.thuis[0]) * b.snel + dx * 0.3; s.vy = Math.sin(s.fase * 0.7 + s.thuis[1]) * b.snel + dy * 0.3;
+      }
+      s.x += s.vx * dt; s.y += s.vy * dt;
+    }
+    if (sinds > 0.08) { sinds = 0; for (const s of stippen) { s.spoor.push([s.x, s.y]); if (s.spoor.length > (b.soort === "kruipt" ? 8 : 16)) s.spoor.shift(); } }
+    teken();
+    if (aan) raf = requestAnimationFrame(stap);
+  };
+  raf = requestAnimationFrame(stap);
+  const knop = svg.closest(".waar")?.querySelector("[data-sim-knop]");
+  knop?.addEventListener("click", () => { aan = !aan; knop.setAttribute("aria-pressed", String(!aan)); knop.textContent = aan ? "Stilzetten" : "Laat bewegen"; if (aan) { vorige = performance.now(); raf = requestAnimationFrame(stap); } });
+  return () => { aan = false; cancelAnimationFrame(raf); };
+}
+
 function tekenWaar(vlak) {
   const m = D.maanden?.kust?.map((x, i) => x + (D.maanden.ncp?.[i] || 0)) || [];
   const max = Math.max(1, ...m), tot = m.reduce((a, b) => a + b, 0);
   const strand = D.strand && D.strand.some((x) => x > 0) ? D.strand : null;
-  vlak.innerHTML = `<div class="waar"><div class="waar-binnen">
-    <div>${kaartSvg()}</div>
+  const b = beweging(), beweegt = b.soort !== "stil" && D.vakken.length;
+  vlak.innerHTML = `<div class="waar" tabindex="0" role="region" aria-label="Waar en wanneer"><div class="waar-binnen">
+    <figure class="waar-kaart">
+      <h2>Waar is ${esc(D.hij)} gemeld?</h2>
+      ${kaartSvg()}
+      <div class="kaart-uitleg">
+        <span class="kaart-legenda"><span class="label">echte meldingen</span><span class="legenda-balk" aria-hidden="true"></span><span>weinig → veel</span></span>
+        ${D.vakken.length ? `<span class="kaart-legenda"><span class="label">simulatie</span><span>${esc(SIMZIN[b.soort](D))}</span></span>` : ""}
+        ${beweegt ? `<button type="button" class="knop licht" data-sim-knop aria-pressed="false">Stilzetten</button>` : ""}
+      </div>
+    </figure>
     <div class="maanden">
       <h2>Wanneer zie je ${esc(D.hem)}?</h2>
       ${tot ? `<div class="maandstrip" aria-hidden="true">${m.map((x, i) => `<span style="height:${Math.max(2, (x / max) * 100)}%"${i === maand ? ' class="nu"' : ""}></span>`).join("")}</div>
-      <div class="maandletters" aria-hidden="true">${MAAND_KORT.map((x) => `<span>${x[0]}</span>`).join("")}</div>
-      <p>Meldingen per maand langs de kust en in het Nederlandse deel van de Noordzee, 2016–2025 (${tot.toLocaleString("nl-NL")} in totaal). Het zijn meldingen van mensen, geen telling: in de zomer kijken er meer mensen.</p>` : `<p>Er zijn geen meldingen langs de Nederlandse kust in 2016–2025.</p>`}
-      ${strand ? `<h2>Gevonden aan het strand</h2><div class="maandstrip" aria-hidden="true">${strand.map((x, i) => `<span style="height:${Math.max(2, x * 100)}%"${i === maand ? ' class="nu"' : ""}></span>`).join("")}</div><div class="maandletters" aria-hidden="true">${MAAND_KORT.map((x) => `<span>${x[0]}</span>`).join("")}</div><p>Deel van de strandbezoeken waarbij strandwachters van Stichting ANEMOON ${esc(D.hem)} vonden, per maand (100% = elke keer), ${esc(D.strand_jaren || "1978–2021")}.</p>` : ""}
+      <div class="maandletters" aria-hidden="true">${MAAND_KORT.map((x, i) => `<span${i === maand ? ' class="nu"' : ""}>${x[0]}</span>`).join("")}</div>
+      <p>Meldingen per maand langs de kust en in het Nederlandse deel van de Noordzee, 2016–2025 (${tot.toLocaleString("nl-NL")} in totaal). Het zijn meldingen van mensen, geen telling: in de zomer kijken er meer mensen. De blauwe staaf is deze maand.</p>` : `<p>Er zijn geen meldingen langs de Nederlandse kust in 2016–2025.</p>`}
+      ${strand ? `<h2>Gevonden aan het strand</h2><div class="maandstrip" aria-hidden="true">${strand.map((x, i) => `<span style="height:${Math.max(2, x * 100)}%"${i === maand ? ' class="nu"' : ""}></span>`).join("")}</div><div class="maandletters" aria-hidden="true">${MAAND_KORT.map((x, i) => `<span${i === maand ? ' class="nu"' : ""}>${x[0]}</span>`).join("")}</div><p>Bij hoeveel van de strandbezoeken strandwachters van Stichting ANEMOON ${esc(D.hem)} vonden, per maand (een volle staaf = elke keer), ${esc(D.strand_jaren || "1978–2021")}.</p>` : ""}
       <table class="sr"><caption>Meldingen per maand</caption><tr>${MAANDEN.map((x, i) => `<th>${x}</th><td>${m[i] || 0}</td>`).join("")}</tr></table>
     </div></div>
-    <div class="beeld-voet" style="background:var(--vlak);color:var(--zacht)"><span class="label">echte meldingen</span><span>Kaart: OBIS, vakken van ongeveer 5 bij 5 km (hoe donkerder, hoe meer meldingen); meldingen op land laten we weg. Kust: Natural Earth. Meldingen per maand: GBIF.</span></div></div>`;
+    <div class="beeld-voet" style="background:var(--vlak);color:var(--zacht)"><span>Kaart: meldingen uit OBIS in vakken van ongeveer 5 bij 5 km, zacht gemaakt; meldingen op land laten we weg. Kust: Natural Earth. Meldingen per maand: GBIF. De bewegende stippen zijn verzonnen.</span></div></div>`;
+  stopTab = simuleer(vlak.querySelector(".kaart-svg"));
 }
 
 /* ---------- op schaal ---------- */

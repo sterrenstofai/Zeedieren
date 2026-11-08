@@ -330,3 +330,25 @@ em, i { font-style: normal; }
   .familie .nav-mijn-n { position: absolute; }
 }
 .dier-kop h1 { line-height: 1.04; }
+
+/* ---------- Waar en wanneer: kaart met plaatsnamen, een wolk van meldingen en een simulatie ---------- */
+.waar-kaart { margin: 0; display: grid; gap: .5rem; min-width: 0; }
+.waar-kaart h2, .maanden h2 { font: 500 1.2rem/1.2 var(--letter); margin: 0; }
+.kaart-svg .wolk rect { fill: #1F6378; }
+.kaart-svg .kaart-zee { font-family: var(--mono); fill: #4C7F8F; letter-spacing: .18em; text-transform: uppercase; }
+.kaart-svg .kaart-plaats { font: 500 30px var(--letter); fill: var(--inkt); paint-order: stroke; stroke: var(--papier); stroke-width: 8px; stroke-linejoin: round; }
+.kaart-svg .kaart-stip { fill: var(--inkt); }
+.kaart-svg .kaart-schaal { stroke: var(--inkt); stroke-width: 4; }
+.kaart-svg .sim-stip { fill: var(--wit); stroke: var(--inkt); stroke-width: 3; }
+.kaart-svg .sim-spoor { fill: none; stroke: var(--wit); stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; opacity: .8; }
+.dier-kaartje .kaart-svg .sim-stip, .dier-kaartje .kaart-svg .sim-spoor { display: none; }
+.kaart-uitleg { display: grid; gap: .45rem; font-size: .85rem; line-height: 1.4; color: var(--zacht); }
+.kaart-legenda { display: flex; flex-wrap: wrap; gap: .4rem .6rem; align-items: center; }
+.legenda-balk { width: 5rem; height: 10px; border-radius: 5px; background: linear-gradient(90deg, rgb(31 99 120 / .15), rgb(31 99 120 / 1)); }
+.kaart-uitleg .knop { justify-self: start; min-height: 36px; font-size: .85rem; }
+.maandletters span.nu { color: var(--inkt); font-weight: 600; }
+@media (min-width: 760px) { .waar-binnen { grid-template-columns: minmax(0, 1.4fr) minmax(11rem, 1fr); align-items: start; } }
+.podium-vlak .waar { overflow-y: auto; }
+.podium-vlak:has(.waar) { place-items: stretch; }
+@media (max-width: 999px) { .podium-vlak:has(.waar) { height: auto; min-height: 0; } .podium-vlak .waar { overflow: visible; } }
+@media (min-width: 1000px) { .podium-vlak .waar { position: absolute; inset: 0; } }
